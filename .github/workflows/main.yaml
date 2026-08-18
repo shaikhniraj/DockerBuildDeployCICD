@@ -11,6 +11,7 @@ env:
   DOCKER_IMAGE_TAG: ${{ github.sha }}
   GIT_COMMIT_SHA: ${{ github.sha }}
   GIT_BRANCH: ${{ github.ref_name }}
+  MONGO_URI: ${{ secrets.MONGO_URI }}
 
 jobs:
   checkout-and-test:
