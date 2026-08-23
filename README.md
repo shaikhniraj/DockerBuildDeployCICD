@@ -14,6 +14,7 @@ A Flask-based web application for managing student registrations with MongoDB as
 - [API Routes](#api-routes)
 - [Testing](#testing)
 - [Docker Deployment](#docker-deployment)
+- [CI/CD Pipeline Evidence](#cicd-pipeline-evidence)
 - [License](#license)
 
 ## 🎯 Project Overview
@@ -56,13 +57,18 @@ The Student Registration System is a web application that allows users to manage
 ## 📁 Folder Structure
 
 ```
-flask_Practice/
+DockerBuildDeployCICD/
 ├── app.py                      # Main Flask application
 ├── test_app.py                 # Pytest test suite
 ├── requirements.txt            # Project dependencies
 ├── Dockerfile                  # Docker container configuration
 ├── README.md                   # Project documentation
 ├── LICENSE                     # License file
+├── .github/workflows/main.yaml # GitHub Actions CI/CD pipeline
+├── CICD-Success-GitHubActions.png
+├── CICD-Success-Emails.png
+├── CICD-Failed-GitHubActions.png
+├── CICD-Failed-Emails.png
 ├── .env                        # Environment variables (not in repo)
 ├── .venv/                      # Virtual environment (local only)
 │
@@ -388,6 +394,31 @@ docker run -d -p 5000:5000 \
 - **Working Directory**: `/app`
 - **Exposed Port**: 5000
 - **Entry Point**: `python app.py`
+
+## CI/CD Pipeline Evidence
+
+The pipeline is defined in [`.github/workflows/main.yaml`](.github/workflows/main.yaml) and runs automatically on pushes to `main`. It performs these jobs in order:
+
+1. **Checkout and Test**: installs the Python dependencies and runs the pytest suite.
+2. **Build Docker Image and Push to ECR**: builds the image and pushes both the commit-tagged and `latest` tags.
+3. **Deploy to EC2 Instance**: pulls the image through AWS Systems Manager, starts the container, and verifies `/health`.
+4. **Notify**: sends a success email when deployment completes or a failure email identifying the failed stage.
+
+### Successful pipeline run
+
+All pipeline stages completed successfully, including the EC2 deployment and application health check.
+
+![Successful GitHub Actions pipeline run](CICD-Success-GitHubActions.png)
+
+![Successful deployment email](CICD-Success-Emails.png)
+
+### Intentionally broken pipeline run
+
+This run contains an intentionally failing test. The pipeline stops at **Checkout and Test**, so the Docker build and EC2 deployment jobs are skipped. The failure notification identifies the failed stage as **Testing (pytest)**.
+
+![Failed GitHub Actions pipeline stopped during testing](CICD-Failed-GitHubActions.png)
+
+![Failure email identifying the failed testing stage](CICD-Failed-Emails.png)
 
 ## 📝 License
 
