@@ -135,14 +135,22 @@ jobs:
         id: deploy
         env:
           INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
-          IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
-          ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr_registry }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
         run: |
           set -euo pipefail
 
+          if [ -z "$INSTANCE_ID" ] || [ -z "$MONGO_URI" ] || [ -z "$SECRET_KEY" ]; then
+            echo "EC2_INSTANCE_ID, MONGO_URI, and SECRET_KEY must be configured as GitHub secrets."
+            exit 1
+          fi
+
+          account_id=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REGISTRY="${account_id}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${DOCKER_IMAGE_TAG}"
+
           echo "Starting deployment to EC2 instance ${INSTANCE_ID} via SSM..."
+          echo "Deploying image: ${IMAGE_URI}"
 
           commands=$(jq -n \
             --arg region "$AWS_REGION" \
