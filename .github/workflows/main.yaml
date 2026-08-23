@@ -55,16 +55,13 @@ jobs:
     needs: checkout-and-test
     runs-on: ubuntu-latest
     if: success()
-    outputs:
-      image_uri: ${{ steps.image_info.outputs.image_uri }}
-      ecr_registry: ${{ steps.image_info.outputs.registry }}
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v5
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -72,7 +69,9 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: true
 
       - name: Set ECR image details
         id: image_info
@@ -125,7 +124,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -253,7 +252,7 @@ jobs:
 
     steps:
       - name: Send Success Email Notification
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v6
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
@@ -276,8 +275,7 @@ jobs:
             
             Docker Image:
             - Image Tag: ${{ needs.checkout-and-test.outputs.image-tag }}
-            - Image URI: ${{ needs.build-and-push.outputs.image_uri }}
-            - Registry: ${{ needs.build-and-push.outputs.ecr_registry }}
+            - Repository: ${{ env.ECR_REPOSITORY }}
             
             Deployment Target:
             - EC2 Instance: ${{ secrets.EC2_HOST }}
@@ -327,7 +325,7 @@ jobs:
           fi
 
       - name: Send Failure Email Notification
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v6
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
