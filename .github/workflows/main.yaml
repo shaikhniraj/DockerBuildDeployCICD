@@ -252,7 +252,7 @@ jobs:
 
     steps:
       - name: Send Success Email Notification
-        uses: dawidd6/action-send-mail@v6
+        uses: dawidd6/action-send-mail@v18
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
@@ -325,7 +325,7 @@ jobs:
           fi
 
       - name: Send Failure Email Notification
-        uses: dawidd6/action-send-mail@v6
+        uses: dawidd6/action-send-mail@v18
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
