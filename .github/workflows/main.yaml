@@ -56,8 +56,8 @@ jobs:
     runs-on: ubuntu-latest
     if: success()
     outputs:
-      image-uri: ${{ steps.image.outputs.image-uri }}
-      ecr-registry: ${{ steps.login-ecr.outputs.registry }}
+      image_uri: ${{ steps.image.outputs.image_uri }}
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
 
     steps:
       - name: Checkout source code
@@ -99,7 +99,7 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          echo "image-uri=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.DOCKER_IMAGE_TAG }}" >> $GITHUB_OUTPUT
+          echo "image_uri=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.DOCKER_IMAGE_TAG }}" >> $GITHUB_OUTPUT
           echo "Image URI: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.DOCKER_IMAGE_TAG }}"
 
   deploy-to-ec2:
@@ -115,12 +115,19 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
       - name: Deploy to EC2 via AWS Systems Manager
         id: deploy
         env:
           INSTANCE_ID: ${{ secrets.EC2_INSTANCE_ID }}
-          IMAGE_URI: ${{ needs.build-and-push.outputs.image-uri }}
-          ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr-registry }}
+          IMAGE_URI: ${{ needs.build-and-push.outputs.image_uri }}
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr_registry }}
           MONGO_URI: ${{ secrets.MONGO_URI }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
         run: |
@@ -240,8 +247,8 @@ jobs:
             
             Docker Image:
             - Image Tag: ${{ needs.checkout-and-test.outputs.image-tag }}
-            - Image URI: ${{ needs.build-and-push.outputs.image-uri }}
-            - Registry: ${{ needs.build-and-push.outputs.ecr-registry }}
+            - Image URI: ${{ needs.build-and-push.outputs.image_uri }}
+            - Registry: ${{ needs.build-and-push.outputs.ecr_registry }}
             
             Deployment Target:
             - EC2 Instance: ${{ secrets.EC2_HOST }}
