@@ -30,6 +30,7 @@ The Student Registration System is a web application that allows users to manage
 - **Docker Support**: Containerized application for consistent deployment
 - **Environment Configuration**: Secure configuration management with `.env` files
 - **Code Quality**: Integration with pylint, black, and bandit for code standards
+- **SSM Deployment**: GitHub Actions deploys the Docker container to EC2 through AWS Systems Manager
 
 ## 📦 Requirements
 
@@ -192,6 +193,171 @@ pytest test_app.py::test_home_page -v
 > **Note**: Tests use a separate test MongoDB database (`test_student_db`)
 
 ## 🐳 Docker Deployment
+
+### GitHub Actions SSM Deployment
+
+The workflow builds and pushes the image to the manually created ECR repository, then deploys it through AWS Systems Manager Session Manager. The EC2 instance must be registered as an SSM managed instance, have the SSM agent running, and have an instance role with `AmazonSSMManagedInstanceCore` and permission to pull from ECR (for example, `AmazonEC2ContainerRegistryReadOnly`).
+
+Add these GitHub repository **secrets**:
+
+| Secret | Purpose |
+|--------|---------|
+| `AWS_ACCESS_KEY_ID` | IAM user access key used by GitHub Actions |
+| `AWS_SECRET_ACCESS_KEY` | IAM user secret key used by GitHub Actions |
+| `EC2_INSTANCE_ID` | Target EC2 instance ID, such as `i-0123456789abcdef0` |
+| `EC2_HOST` | Public hostname or IP used by the health check |
+| `MONGO_URI` | MongoDB connection string passed to the container |
+| `SECRET_KEY` | Flask secret key passed to the container |
+| `SMTP_SERVER` | SMTP server for deployment notifications |
+| `SMTP_PORT` | SMTP port for deployment notifications |
+| `SMTP_USERNAME` | SMTP username for deployment notifications |
+| `SMTP_PASSWORD` | SMTP password for deployment notifications |
+| `SMTP_FROM_EMAIL` | Sender address for deployment notifications |
+| `NOTIFICATION_EMAIL` | Recipient address for deployment notifications |
+
+Set `ECR_REPOSITORY` in `.github/workflows/main.yaml` to the ECR repository created manually. The GitHub IAM identity needs `ecr:GetAuthorizationToken`, ECR image push permissions, and SSM `SendCommand`/`GetCommandInvocation` permissions for the target instance. SSH secrets such as `EC2_USER`, `EC2_SSH_KEY`, and `EC2_PORT` are no longer required.
+
+#### GitHub Actions IAM user policy
+
+Attach the following inline policy to the IAM user or role whose credentials are stored in `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Replace the account ID, region, repository name, and instance ID placeholders.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PushToManuallyCreatedRepository",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:CompleteLayerUpload",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart"
+      ],
+      "Resource": "arn:aws:ecr:<AWS_REGION>:<AWS_ACCOUNT_ID>:repository/<ECR_REPOSITORY>"
+    },
+    {
+      "Sid": "DeployThroughSsm",
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ssm:<AWS_REGION>:<AWS_ACCOUNT_ID>:document/AWS-RunShellScript",
+        "arn:aws:ec2:<AWS_REGION>:<AWS_ACCOUNT_ID>:instance/<EC2_INSTANCE_ID>"
+      ]
+    },
+    {
+      "Sid": "ReadSsmCommandResult",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetCommandInvocation",
+        "ssm:ListCommandInvocations",
+        "ssm:ListCommands"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+The `ssm:SendCommand` resource format can vary by AWS account and document configuration. If AWS rejects the resource-scoped statement, use `"Resource": "*"` for that statement and restrict access with an IAM condition or a dedicated deployment role.
+
+#### EC2 instance role policy
+
+Attach this policy to the EC2 instance profile role. It gives the instance permission to register with Systems Manager and pull the manually created ECR repository. The instance role does not need ECR push permissions.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SystemsManagerCore",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeAssociation",
+        "ssm:UpdateInstanceInformation",
+        "ssmmessages:CreateControlChannel",
+        "ssmmessages:CreateDataChannel",
+        "ssmmessages:OpenControlChannel",
+        "ssmmessages:OpenDataChannel",
+        "ec2messages:AcknowledgeMessage",
+        "ec2messages:DeleteMessage",
+        "ec2messages:FailMessage",
+        "ec2messages:GetEndpoint",
+        "ec2messages:GetMessages",
+        "ec2messages:SendReply"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrPull",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage",
+        "ecr:GetDownloadUrlForLayer"
+      ],
+      "Resource": "arn:aws:ecr:<AWS_REGION>:<AWS_ACCOUNT_ID>:repository/<ECR_REPOSITORY>"
+    },
+    {
+      "Sid": "EcrLogin",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+The EC2 role trust relationship must also allow EC2 to assume it:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "ec2.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+```
+
+The EC2 instance also needs network access to AWS SSM and ECR endpoints, either through internet/NAT access or VPC interface endpoints. Docker must be installed and the SSM Agent must be running.
+
+#### Manual AWS setup steps
+
+1. **Create the ECR repository manually.** In the AWS Console, open **Amazon ECR**, choose **Private registry > Repositories**, select **Create repository**, and create the repository name used by `ECR_REPOSITORY` in the workflow. Keep the repository in the same AWS account and region as the EC2 instance.
+
+2. **Create the GitHub Actions IAM identity.** Create an IAM user or deployment role for GitHub Actions, attach the GitHub Actions policy above, and create an access key if using an IAM user. Do not use the EC2 instance role credentials in GitHub Actions.
+
+3. **Create the EC2 role.** Create an IAM role with **AWS service** as the trusted entity and **EC2** as the use case. Attach `AmazonSSMManagedInstanceCore` and `AmazonEC2ContainerRegistryReadOnly`, or attach the scoped EC2 instance policy shown above.
+
+4. **Attach the role to the instance.** In the EC2 Console, select the instance, choose **Actions > Security > Modify IAM role**, and attach the role through an instance profile. The instance must be running and in the same region configured by `AWS_REGION`.
+
+5. **Prepare the EC2 instance.** Install and start Docker, confirm that the SSM Agent is running, and ensure the instance can reach SSM and ECR endpoints. For a private subnet, configure NAT or the required VPC endpoints.
+
+6. **Confirm SSM registration.** In **Systems Manager > Fleet Manager**, confirm that the instance appears as a managed node with status **Online**. Until it is online, GitHub Actions cannot send the deployment command.
+
+7. **Add GitHub repository secrets.** Add `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `EC2_INSTANCE_ID`, `EC2_HOST`, `MONGO_URI`, `SECRET_KEY`, `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, and `NOTIFICATION_EMAIL` under **Settings > Secrets and variables > Actions > New repository secret**.
+
+8. **Update the workflow repository name.** Set `ECR_REPOSITORY` in `.github/workflows/main.yaml` to the manually created ECR repository name, then push the workflow to the `main` branch. A push to `main` runs the tests, builds and pushes the image, deploys it through SSM, and runs the health check.
+
+9. **Verify permissions before the first deployment.** From a machine configured with the GitHub Actions IAM credentials, run:
+
+  ```bash
+  aws ecr describe-repositories --repository-names <ECR_REPOSITORY> --region <AWS_REGION>
+  aws ssm describe-instance-information --filters Key=InstanceIds,Values=<EC2_INSTANCE_ID> --region <AWS_REGION>
+  ```
+
+  The first command confirms the repository exists. The second should return the EC2 instance with `PingStatus` set to `Online`.
 
 ### Build Docker Image
 
